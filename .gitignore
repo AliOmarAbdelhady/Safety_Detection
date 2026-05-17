@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Model weights and exported models
+*.pt
+*.pth
+*.onnx
+*.torchscript
+*.weights
+models/
+
+# YOLO training runs
+runs/
+
+# Dataset archives
+fire_extinguishers.zip
+safety_vests.zip
+safety_helmet.zip
+Glove_detection.zip
+
+# Dataset folders (images + labels)
+fire extinguishers.v1i.yolov8/
+Safety Vests.v1i.yolov8/
+Safetyhelmet-detection.v1i.yolov8/
+Glove_detection.v1i.yolov8/
+Glove_detection/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
