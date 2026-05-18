@@ -20,17 +20,30 @@ class SafetyDetector:
     }
     GLOVE_CLASSES = {0: "Glove Wearing", 1: "No Gloves"}
 
-    def __init__(self, vest_model_path: str, helmet_model_path: str,
-                 fire_ext_model_path: str, glove_model_path: str):
+    # Fire extinguisher post-processing
+    FIRE_EXT_MIN_CONF = 0.35  # Minimum confidence after retrain with YOLO11m
+
+    def __init__(self, vest_model_path=None, helmet_model_path=None,
+                 fire_ext_model_path=None, glove_model_path=None):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.vest_model = YOLO(vest_model_path)
-        self.vest_model.to(self.device)
-        self.helmet_model = YOLO(helmet_model_path)
-        self.helmet_model.to(self.device)
-        self.fire_ext_model = YOLO(fire_ext_model_path)
-        self.fire_ext_model.to(self.device)
-        self.glove_model = YOLO(glove_model_path)
-        self.glove_model.to(self.device)
+        self.available_models = set()
+
+        if vest_model_path:
+            self.vest_model = YOLO(vest_model_path)
+            self.vest_model.to(self.device)
+            self.available_models.add("vest")
+        if helmet_model_path:
+            self.helmet_model = YOLO(helmet_model_path)
+            self.helmet_model.to(self.device)
+            self.available_models.add("helmet")
+        if fire_ext_model_path:
+            self.fire_ext_model = YOLO(fire_ext_model_path)
+            self.fire_ext_model.to(self.device)
+            self.available_models.add("fire_ext")
+        if glove_model_path:
+            self.glove_model = YOLO(glove_model_path)
+            self.glove_model.to(self.device)
+            self.available_models.add("glove")
 
     def _run_model(self, model, image, conf_threshold, iou_threshold):
         results = model.predict(
@@ -68,20 +81,37 @@ class SafetyDetector:
         result = self._run_model(self.helmet_model, image, conf_threshold, iou_threshold)
         return self._parse_detections(result, self.HELMET_CLASSES, "helmet")
 
-    def predict_fire_extinguisher(self, image, conf_threshold=0.25, iou_threshold=0.45):
+    def _filter_fire_ext_detections(self, detections, min_conf):
+        """Post-process fire extinguisher detections to remove false positives."""
+        filtered = []
+        for det in detections:
+            if det["confidence"] >= min_conf:
+                filtered.append(det)
+        return filtered
+
+    def predict_fire_extinguisher(self, image, conf_threshold=0.25, iou_threshold=0.45,
+                                  fire_ext_min_conf=0.35):
         result = self._run_model(self.fire_ext_model, image, conf_threshold, iou_threshold)
-        return self._parse_detections(result, self.FIRE_EXT_CLASSES, "fire_ext")
+        detections = self._parse_detections(result, self.FIRE_EXT_CLASSES, "fire_ext")
+        return self._filter_fire_ext_detections(detections, fire_ext_min_conf)
 
     def predict_glove(self, image, conf_threshold=0.25, iou_threshold=0.45):
         result = self._run_model(self.glove_model, image, conf_threshold, iou_threshold)
         return self._parse_detections(result, self.GLOVE_CLASSES, "glove")
 
-    def detect_all(self, image, conf_threshold=0.25, iou_threshold=0.45):
-        vest_dets = self.predict_vest(image, conf_threshold, iou_threshold)
-        helmet_dets = self.predict_helmet(image, conf_threshold, iou_threshold)
-        fire_ext_dets = self.predict_fire_extinguisher(image, conf_threshold, iou_threshold)
-        glove_dets = self.predict_glove(image, conf_threshold, iou_threshold)
-        return vest_dets + helmet_dets + fire_ext_dets + glove_dets
+    def detect_all(self, image, conf_threshold=0.25, iou_threshold=0.45,
+                   fire_ext_min_conf=0.35):
+        all_detections = []
+        if "vest" in self.available_models:
+            all_detections += self.predict_vest(image, conf_threshold, iou_threshold)
+        if "helmet" in self.available_models:
+            all_detections += self.predict_helmet(image, conf_threshold, iou_threshold)
+        if "fire_ext" in self.available_models:
+            all_detections += self.predict_fire_extinguisher(
+                image, conf_threshold, iou_threshold, fire_ext_min_conf)
+        if "glove" in self.available_models:
+            all_detections += self.predict_glove(image, conf_threshold, iou_threshold)
+        return all_detections
 
     def get_summary(self, detections):
         summary = {
@@ -98,7 +128,6 @@ class SafetyDetector:
             "fire_ext_total": 0,
             "glove_total": 0,
         }
-        helmet_found = False
         for det in detections:
             name = det["class_name"]
             if name in summary:
@@ -108,21 +137,23 @@ class SafetyDetector:
                 summary["vest_total"] += 1
             elif det["model"] == "helmet":
                 summary["helmet_total"] += 1
-                helmet_found = True
             elif det["model"] == "fire_ext":
                 summary["fire_ext_total"] += 1
             elif det["model"] == "glove":
                 summary["glove_total"] += 1
 
         # Flag no-helmet if helmets detected are 0 but vest detections exist (people present)
-        vest_dets = [d for d in detections if d["model"] == "vest"]
-        helmet_dets = [d for d in detections if d["model"] == "helmet"]
-        if vest_dets and not helmet_dets:
-            summary["No Helmet"] = summary["vest_total"]
+        if "vest" in self.available_models and "helmet" in self.available_models:
+            vest_dets = [d for d in detections if d["model"] == "vest"]
+            helmet_dets = [d for d in detections if d["model"] == "helmet"]
+            if vest_dets and not helmet_dets:
+                summary["No Helmet"] = summary["vest_total"]
 
         # Flag no-gloves if glove detections are 0 but vest detections exist (people present)
-        glove_dets = [d for d in detections if d["model"] == "glove"]
-        if vest_dets and not glove_dets:
-            summary["No Gloves"] = summary["vest_total"]
+        if "vest" in self.available_models and "glove" in self.available_models:
+            vest_dets = [d for d in detections if d["model"] == "vest"]
+            glove_dets = [d for d in detections if d["model"] == "glove"]
+            if vest_dets and not glove_dets:
+                summary["No Gloves"] = summary["vest_total"]
 
         return summary

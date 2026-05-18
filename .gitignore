@@ -33,6 +33,7 @@ runs/
 fire_extinguishers.zip
 safety_vests.zip
 safety_helmet.zip
+Glove_detection.v1i.yolov8.zip
 Glove_detection.zip
 
 # Dataset folders (images + labels)
@@ -41,6 +42,7 @@ Safety Vests.v1i.yolov8/
 Safetyhelmet-detection.v1i.yolov8/
 Glove_detection.v1i.yolov8/
 Glove_detection/
+fire extinguisher.v1i.yolov11/
 
 # OS files
 .DS_Store
