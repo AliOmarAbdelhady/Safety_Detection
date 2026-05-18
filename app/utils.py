@@ -36,8 +36,13 @@ CLASS_NAMES = {
 }
 
 
-def annotate_image(image: np.ndarray, detections: list) -> np.ndarray:
-    annotated = image.copy()
+def annotate_image_single_model(image: np.ndarray, detections: list, model_key: str) -> np.ndarray:
+    """Annotate image with detections from a single model only."""
+    filtered = [d for d in detections if d.get("model") == model_key]
+    return _draw_annotations(image.copy(), filtered)
+
+
+def _draw_annotations(annotated: np.ndarray, detections: list) -> np.ndarray:
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
         cls_id = det["class_id"]
@@ -55,8 +60,13 @@ def annotate_image(image: np.ndarray, detections: list) -> np.ndarray:
             annotated, label, (x1 + 2, y1 - 5),
             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA,
         )
+    return annotated
 
-    # Draw helmet violation warning if no helmets found but people detected
+
+def annotate_image(image: np.ndarray, detections: list) -> np.ndarray:
+    annotated = _draw_annotations(image.copy(), detections)
+
+    # Draw violation warnings on the combined view
     vest_dets = [d for d in detections if d.get("model") == "vest"]
     helmet_dets = [d for d in detections if d.get("model") == "helmet"]
     glove_dets = [d for d in detections if d.get("model") == "glove"]
