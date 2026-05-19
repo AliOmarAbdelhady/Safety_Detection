@@ -6,11 +6,14 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(__file__))
 from detector import SafetyDetector
 from utils import annotate_image, annotate_image_single_model, generate_report
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 VEST_MODEL_PATH = os.path.join(MODELS_DIR, "best.pt")
@@ -148,7 +151,49 @@ MODEL_EMOJIS = {
 }
 
 
-def run_detection(image_bgr, image_np):
+def _scan_folder(folder_path):
+    files = []
+    for f in sorted(os.listdir(folder_path)):
+        if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS:
+            files.append(os.path.join(folder_path, f))
+    return files
+
+
+def _render_keyboard_js():
+    components.html(
+        """
+        <script>
+        (function() {
+            var parentDoc = window.parent.document;
+            parentDoc.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowLeft') {
+                    var btns = parentDoc.querySelectorAll('button');
+                    for (var i = 0; i < btns.length; i++) {
+                        if (btns[i].textContent.includes('Prev')) {
+                            btns[i].click();
+                            e.preventDefault();
+                            break;
+                        }
+                    }
+                } else if (e.key === 'ArrowRight') {
+                    var btns = parentDoc.querySelectorAll('button');
+                    for (var i = 0; i < btns.length; i++) {
+                        if (btns[i].textContent.includes('Next')) {
+                            btns[i].click();
+                            e.preventDefault();
+                            break;
+                        }
+                    }
+                }
+            });
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def run_detection(image_bgr, image_np, source="default"):
     active_models = [k for k in MODEL_DISPLAY_ORDER if enabled_models.get(k, False)]
 
     if not active_models:
@@ -191,7 +236,7 @@ def run_detection(image_bgr, image_np):
 
     # --- Save original picture ---
     SAVE_DIR = os.path.join(os.path.dirname(__file__), "..", "testing_all_models")
-    if st.button("Save Picture"):
+    if st.button("Save Picture", key=f"save_{source}"):
         os.makedirs(SAVE_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = os.path.join(SAVE_DIR, f"capture_{timestamp}.jpg")
@@ -265,21 +310,82 @@ with tab_webcam:
         pil_image = Image.open(captured).convert("RGB")
         image_np = np.array(pil_image)
         image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-        run_detection(image_bgr, image_np)
+        run_detection(image_bgr, image_np, source="webcam")
 
 # --- Upload Tab ---
 with tab_upload:
-    st.subheader("Upload an Image")
     uploaded = st.file_uploader(
         "Choose an image", type=["jpg", "jpeg", "png"],
         label_visibility="collapsed",
     )
 
-    if uploaded is not None:
+    folder_mode = st.toggle(
+        "📁 Browse folder", value=False, key="folder_mode_toggle",
+    )
+
+    if folder_mode:
+        folder_path = st.text_input(
+            "Folder path", placeholder="/path/to/image/folder",
+            key="folder_path_input",
+        )
+
+        if folder_path and os.path.isdir(folder_path):
+            images = _scan_folder(folder_path)
+
+            if not images:
+                st.warning("No images found in this folder.")
+            else:
+                if st.session_state.get("folder_path") != folder_path:
+                    st.session_state.folder_idx = 0
+                    st.session_state.folder_path = folder_path
+
+                idx = st.session_state.folder_idx
+
+                nav_cols = st.columns([1, 2, 1])
+                with nav_cols[0]:
+                    if st.button("◀ Prev", disabled=(idx == 0), key="folder_prev"):
+                        st.session_state.folder_idx = max(0, idx - 1)
+                        st.rerun()
+                with nav_cols[1]:
+                    st.markdown(
+                        f"<div style='text-align:center; padding-top:8px;'>"
+                        f"<b>{idx + 1}</b> / {len(images)} &mdash; "
+                        f"{os.path.basename(images[idx])}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with nav_cols[2]:
+                    if st.button("▶ Next", disabled=(idx == len(images) - 1), key="folder_next"):
+                        st.session_state.folder_idx = min(len(images) - 1, idx + 1)
+                        st.rerun()
+
+                _render_keyboard_js()
+
+                img_path = images[st.session_state.folder_idx]
+                pil_image = Image.open(img_path).convert("RGB")
+                image_np = np.array(pil_image)
+                image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+                detections = run_detection(image_bgr, image_np, source="folder")
+
+                if detections:
+                    rows = []
+                    for det in detections:
+                        x1, y1, x2, y2 = det["bbox"]
+                        model_label = MODEL_CONFIG.get(det["model"], {}).get("label", det["model"])
+                        rows.append({
+                            "Model": model_label,
+                            "Class": det["class_name"],
+                            "Confidence": f"{det['confidence']:.2%}",
+                            "X1": x1, "Y1": y1, "X2": x2, "Y2": y2,
+                        })
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        elif folder_path:
+            st.error("Invalid folder path. Please check the path and try again.")
+
+    elif uploaded is not None:
         pil_image = Image.open(uploaded).convert("RGB")
         image_np = np.array(pil_image)
         image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-        detections = run_detection(image_bgr, image_np)
+        detections = run_detection(image_bgr, image_np, source="upload")
 
         if detections:
             rows = []

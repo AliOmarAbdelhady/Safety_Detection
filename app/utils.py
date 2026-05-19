@@ -16,8 +16,8 @@ COLORS = {
     ("fire_ext", 5): (0, 165, 255),
     ("fire_ext", 6): (0, 165, 255),
     # Glove classes
-    ("glove", 0): (0, 255, 255),   # Yellow for Glove Wearing
-    ("glove", 1): (255, 0, 255),   # Magenta for No Gloves
+    ("glove", 0): (255, 100, 0),   # Blue for Glove Wearing
+    ("glove", 1): (255, 0, 0),     # Red for No Gloves
 }
 
 CLASS_NAMES = {

@@ -49,7 +49,10 @@ testing_all_models/
 # OS files
 .DS_Store
 Thumbs.db
-
+create_document.py
+create_presentation.py
+Safety_Detection_Document.docx
+Safety_Detection_Presentation.pptx
 # IDE
 .vscode/
 .idea/
